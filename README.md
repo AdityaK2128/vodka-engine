@@ -13,6 +13,14 @@ GitHub Actions builds it on an Intel Mac runner and publishes it under **Release
 | Included | Wine Mono, Wine Gecko, FreeType, GnuTLS, MoltenVK |
 | Not included | Apple's D3DMetal. It is Apple software under Apple's license; Vodka adds it on the user's Mac from a download the user approves. |
 
+## Patches
+
+Applied on top of CodeWeavers' source by `scripts/build.sh`, from `patches/`:
+
+| Patch | Fixes |
+|---|---|
+| `0001-ntdll-macos-sigsys-restore-teb` | Games that make Windows system calls directly (e.g. Forza Horizon 6's copy protection) crashed on macOS: the SIGSYS handler resumed Windows code without switching GSBASE back to the TEB, so the syscall dispatcher read a NULL TEB. |
+
 ## Build
 
 On GitHub: **Actions → Build engine → Run workflow**.

@@ -36,6 +36,13 @@ WINE_SRC="$WORK/src/sources/wine"
 WINE_VERSION="$(sed -e 's/Wine version //' "$WINE_SRC/VERSION")"
 echo "Wine $WINE_VERSION"
 
+step "Applying Vodka's patches"
+for patch in "$ROOT"/patches/*.py; do
+  [ -e "$patch" ] || continue
+  echo "$(basename "$patch")"
+  python3 "$patch" "$WINE_SRC"
+done
+
 # 2. Configure ----------------------------------------------------------------------------------
 step "Configuring"
 export PATH="$BREW/opt/bison/bin:$BREW/opt/mingw-w64/bin:$BREW/bin:$PATH"
