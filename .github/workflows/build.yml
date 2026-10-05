@@ -1,0 +1,90 @@
+name: Build engine
+
+on:
+  workflow_dispatch:
+    inputs:
+      crossover_version:
+        description: CrossOver source version (media.codeweavers.com/pub/crossover/source)
+        default: 26.3.0
+        required: true
+      publish:
+        description: Publish a release when the smoke test passes
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ inputs.crossover_version }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Intel runner: Wine for macOS is x86_64 (Apple Silicon runs it through Rosetta 2).
+    runs-on: macos-15-intel
+    timeout-minutes: 300
+    env:
+      CX_VERSION: ${{ inputs.crossover_version }}
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 3G
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build tools
+        run: |
+          brew install bison mingw-w64 freetype gnutls molten-vk pkgconf ccache || true
+          for formula in bison mingw-w64 freetype gnutls molten-vk pkgconf ccache; do
+            brew list --versions "$formula" || { echo "::error::$formula failed to install"; exit 1; }
+          done
+          x86_64-w64-mingw32-gcc --version | head -1
+          sysctl -n machdep.cpu.brand_string hw.ncpu
+
+      - name: Restore compiler cache
+        uses: actions/cache/restore@v6
+        with:
+          path: .ccache
+          key: ccache-${{ inputs.crossover_version }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ inputs.crossover_version }}-
+            ccache-
+
+      - name: Build
+        run: scripts/build.sh "$CX_VERSION"
+
+      - name: Save compiler cache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: .ccache
+          key: ccache-${{ inputs.crossover_version }}-${{ github.run_id }}
+
+      - name: Smoke test
+        id: smoke
+        continue-on-error: true
+        run: scripts/smoke-test.sh work/wine
+
+      - name: Keep the build for inspection
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: vodka-wine-cx${{ inputs.crossover_version }}
+          path: dist/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Publish release
+        if: inputs.publish && steps.smoke.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="cx-$CX_VERSION"
+          cp "work/crossover-sources-$CX_VERSION.tar.gz" dist/
+          NOTES="Wine built from CodeWeavers' CrossOver $CX_VERSION open-source release (LGPL 2.1+). The exact source archive is attached. Apple's D3DMetal is not included."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "Wine (CrossOver $CX_VERSION source)" --notes "$NOTES"
+          fi
